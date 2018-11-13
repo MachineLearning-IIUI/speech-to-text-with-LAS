@@ -4,6 +4,13 @@
 This is a Pytorch implementation of an attention-based end-to-end speech-to-text system. The deep neural network model is based on Listen, Atten and Spell (LAS). We modified the attention mechanism and slightly change the Listener networks.
 ## Dataset
 We use WSJ (Wall Street Journal) dataset.
+
+Training set: 24724 utterances.
+
+Validation set: 1106 utterances.
+
+Test set: 
+
 ## Experiment
 ### Transcript Preprocessing
 1. Convert training transcript from bytes to string.
@@ -12,7 +19,7 @@ We use WSJ (Wall Street Journal) dataset.
 4. Convert words in transcript to characters, and label with corresponding number.
 Example:
 ```python3
-utteance = ['THE'],['FEMALE']
+utteance = ['THE','FEMALE']
 utterance = [<sos>,'T','H','E',<space>,'F','E','M','A','L','E',<eos>]
 utterance = [0,y,y,y,y,y,y,y,y,y,y,0]
 ```
