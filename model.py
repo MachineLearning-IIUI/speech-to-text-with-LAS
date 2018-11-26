@@ -56,7 +56,7 @@ class Listener(nn.Module):
                 # transpose back to (longest_len/2) * batch_size * (dim*2)
                 padded_inputs = padded_inputs.transpose(0, 1)
         
-        # batch_size * longest_len * (hidden_size*4)
+        # batch_size * longest_len * (hidden_size*2)
         lstm_outputs = lstm_outputs.transpose(0, 1) 
         
         return lstm_outputs, outputs_length
@@ -127,7 +127,6 @@ class Speller(nn.Module):
 
         # batch_size * timestep
         predictions = torch.stack(predictions, dim=1)
-        probs = torch.stack(probs, dim=1).permute(0,2,1)
         # targets_for_loss: batch_size * timestep
         # targets length for loss: a list of len_for_loss (original_len - 1)
         return probs, predictions, targets_for_loss, targets_length_for_loss, attentions
@@ -149,12 +148,13 @@ class AttentionContext(nn.Module):
         decoder_state: batch_size * decoder_hidden_dim
         listener_output: batch_size * longest_len * listener_output_dim 
         """
-        # query: batch_size * 1 * decoder_hidden_state
+        # query: batch_size * 1 * decoder_hidden_dim
+        # after projection, query: batch_size * 1 * key_dim
         query = self.mlp_s(torch.unsqueeze(decoder_state, dim=1))
-        # key: batch_size * mlp_output_size * listener_output_dim
+        # key: batch_size * key_dim * listener_output_dim
         key = self.mlp_h(listener_output)
         # energy: batch_size * 1 * listener_output_dim
-        energy = torch.bmm(query, key.transpose(1, 2))
+        energy = torch.bmm(query, key.transpose(1,2))
         # attention: batch_size * 1 * listener_output_dim 
         attention = self.softmax(energy)
         attention_mask = torch.ones(attention.shape)
@@ -163,6 +163,7 @@ class AttentionContext(nn.Module):
                 attention_mask[i][0][outputs_length[i]:] = 0
         attention = attention * attention_mask
         attention = F.normalize(attention, p=1, dim=2)
+        # batch_size * listener_output_dim * value_dim
         value = self.value_projection(listener_output)
         utterance_mask = torch.ones(value.shape)
         for i in range(listener_output.shape[0]):
@@ -179,6 +180,7 @@ class LAS(nn.Module):
     def __init__(self, input_size, listener_hidden_size, nlayers,
                  speller_hidden_dim, embedding_dim, 
                  class_size, key_dim, value_dim, batch_size):
+        super(LAS, self).__init__()
         self.listener = Listener(input_size=40, hidden_size=listener_hidden_size, nlayers=4)
         self.listener = self.listener.to(DEVICE)
         self.speller = Speller(listener_hidden_size*2, speller_hidden_dim, 
@@ -196,21 +198,26 @@ class LAS(nn.Module):
 if __name__ == "__main__":
     u1 = torch.randn((30,40))
     u2 = torch.randn((20,40))
-    u3 = torch.randn((10,40))
-    t1 = torch.randint(0,32,(5,))
-    t2 = torch.randint(0,32,(4,))
-    t3 = torch.randint(0,32,(3,))
-    inputs = [u1, u2, u3]
-    targets = [t1, t2, t3]
-    listener_model = Listener(40, 256, 4)
-    padded_outputs, outputs_length = listener_model(inputs)
+    # u3 = torch.randn((10,40))
+    t1 = torch.randint(0,32,(9,))
+    t2 = torch.randint(0,32,(8,))
+    # t3 = torch.randint(0,32,(7,))
+    inputs = [u1, u2]
+    targets = [t1, t2]
+    # listener_model = Listener(40, 256, 4)
+    # padded_outputs, outputs_length = listener_model(inputs)
 
     # decoder_state = torch.rand((3,200))
     # attention_model = AttentionContext(200, 512, 256, 500)
     # context = attention_model(decoder_state, padded_outputs, outputs_length)
 
-    speller_model = Speller(listener_hidden_dim=512, speller_hidden_dim=512, 
-                            embedding_dim=256, class_size=33, key_dim=128, value_dim=128, 
-                            batch_size=3)
-    speller_model(padded_outputs, outputs_length, targets, 0.9)
+    # speller_model = Speller(listener_hidden_dim=512, speller_hidden_dim=512, 
+    #                         embedding_dim=256, class_size=33, key_dim=128, value_dim=128, 
+    #                         batch_size=3)
+    # speller_model(padded_outputs, outputs_length, targets, 0.9)
+
+    las = LAS(input_size=40, listener_hidden_size=256, nlayers=4,
+              speller_hidden_dim=512, embedding_dim=256, 
+              class_size=34, key_dim=128, value_dim=128, batch_size=2)
+    las(inputs, targets, 0.9)
     

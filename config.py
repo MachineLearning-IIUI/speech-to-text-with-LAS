@@ -4,8 +4,8 @@ MODEL_CONFIG = {
     "nlayers": 4,
     "speller_hidden_dim": 512,
     "embedding_dim": 256,
-    "class_size": 33,
+    "class_size": 34,
     "key_dim": 128,
     "value_dim": 128,
-    "batch_size": 64
+    "batch_size": 2
 }

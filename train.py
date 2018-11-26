@@ -12,19 +12,30 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 def train(train_loader, model, optimizer, criterion, epoch):
     loss_sum = 0
+    perplexity_sum = 0
+    loss = 0
     for step, (inputs, targets) in enumerate(train_loader):
+        print(step)
         torch.cuda.empty_cache()
         optimizer.zero_grad()
         probs, predictions, targets_for_loss, targets_length_for_loss, \
         attentions = model(inputs, targets, teacher_forcing=0.9)
-        loss = criterion(predictions, targets_for_loss)
+
+        for i in range(len(probs)):
+            loss += criterion(probs[i], targets_for_loss[:, i])
+        
         loss.backward()
         optimizer.step()
         loss_sum += loss.item()
+        perplexity_sum += np.exp(loss.item() / max(targets_length_for_loss))
+        print("loss", loss.item())
+        print(np.exp(loss.item() / max(targets_length_for_loss)))
+        loss = 0
         if (step+1) % 10 == 0:
-            print("epoch {}, step {}, loss per step {}, finish {}".format(
-                epoch, step, loss_sum/10, (step+1)*len(inputs)))
+            print("epoch {}, step {}, loss per step {}, perplexity {}, finish {}".format(
+                epoch, step, loss_sum/10, perplexity_sum/10, (step+1)*len(inputs)))
             loss_sum = 0
+            perplexity_sum = 0
         if (step+1) % args.checkpoint == 0:
             save_model(epoch, model, optimizer, loss, step, "./weights/")
 
@@ -70,16 +81,16 @@ def main(args):
     train_path = "./data/train.npy"
     train_transcripts_path = "./data/train_char.npy"
     train_set = myDataset(train_path, train_transcripts_path)
-    train_loader = DataLoader(train_set, shuffle=True, batch_size=4, collate_fn=collate_seq, num_workers=4) 
+    train_loader = DataLoader(train_set, shuffle=True, batch_size=batch_size, collate_fn=collate_seq, num_workers=4) 
     
     # dev_path = "./data/dev.npy"
     # dev_transcripts_path = "./data/dev_char.npy"
     # dev_set = myDataset(dev_path, dev_transcripts_path)
-    # dev_loader = DataLoader(dev_set, shuffle=False, batch_size=4, collate_fn=collate_seq, num_workers=4) 
+    # dev_loader = DataLoader(dev_set, shuffle=False, batch_size=batch_size, collate_fn=collate_seq, num_workers=4) 
 
     # test_path = "./data/test.npy"
     # dev_set = myDataset(dev_path, None)
-    # dev_loader = DataLoader(test_set, shuffle=False, batch_size=4, collate_fn=collate_seq, num_workers=4) 
+    # dev_loader = DataLoader(test_set, shuffle=False, batch_size=batch_size, collate_fn=collate_seq, num_workers=4) 
     
     model = LAS(input_size, listener_hidden_size, nlayers,
                 speller_hidden_dim, embedding_dim, 
@@ -111,11 +122,11 @@ def main(args):
 def arguments():
     parser = argparse.ArgumentParser(description="LAS")
     # parameters for training process
-    parser.add_argument('--epochs', type=int, default=30, metavar='E',
+    parser.add_argument('--epochs', type=int, default=10, metavar='E',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--weight-decay', type=float, default=0.001,
                         help='L2 regularization')
-    parser.add_argument('--lr', type=float, defalut=0.01, metavar='LR',
+    parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                         help="learning rate")
     parser.add_argument('--checkpoint', type=int, default=100, metavar="R",
                         help='checkpoint to save model parameters')

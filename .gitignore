@@ -2,3 +2,4 @@
 *.pdf
 data/
 .vscode/
+__pycache__/
