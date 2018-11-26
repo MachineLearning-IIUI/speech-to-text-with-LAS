@@ -9,7 +9,9 @@ Training set: 24724 utterances.
 
 Validation set: 1106 utterances.
 
-Test set: 
+Test set: 523 utterances.
+
+The dtype of training set, validation set and test set is float32.
 
 ## Experiment
 ### Transcript Preprocessing
