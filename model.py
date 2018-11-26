@@ -14,18 +14,19 @@ class Listener(nn.Module):
         self.lstm_list = []
         for i in range(nlayers):
             if i == 0:
-                lstm = nn.LSTM(input_size=input_size, 
-                               hidden_size=hidden_size, 
+                lstm = nn.LSTM(input_size=input_size,
+                               hidden_size=hidden_size,
                                num_layers=1,
                                bidirectional=True)
             else:
-                lstm = nn.LSTM(input_size=hidden_size * 2 * 2, 
-                               hidden_size=hidden_size, 
+                lstm = nn.LSTM(input_size=hidden_size * 2 * 2,
+                               hidden_size=hidden_size,
                                num_layers=1,
                                bidirectional=True)
 
             self.lstm_list.append(lstm)
-    
+        self.lstm_list = nn.ModuleList(self.lstm_list)
+
     def forward(self, inputs_list): # batch_size * var_seq_len * 40
         batch_size = len(inputs_list)
 
@@ -35,7 +36,7 @@ class Listener(nn.Module):
         outputs_length = inputs_length // 8 # output utterance lengths
 
         # longest_len * batch_size * 40
-        padded_inputs = rnn.pad_sequence(inputs_list)
+        padded_inputs = rnn.pad_sequence(inputs_list).to(DEVICE)
 
         for i in range(self.nlayers):
             # lstm_output: longest_len * batch_size * (hidden_size*2)
@@ -55,14 +56,14 @@ class Listener(nn.Module):
                 padded_inputs = padded_inputs.reshape(batch_size, longest_len, dim)
                 # transpose back to (longest_len/2) * batch_size * (dim*2)
                 padded_inputs = padded_inputs.transpose(0, 1)
-        
+
         # batch_size * longest_len * (hidden_size*2)
-        lstm_outputs = lstm_outputs.transpose(0, 1) 
-        
+        lstm_outputs = lstm_outputs.transpose(0, 1)
+
         return lstm_outputs, outputs_length
 
 class Speller(nn.Module):
-    def __init__(self, listener_hidden_dim, speller_hidden_dim, 
+    def __init__(self, listener_hidden_dim, speller_hidden_dim,
                  embedding_dim, class_size, key_dim, value_dim, batch_size):
         super(Speller, self).__init__()
         rnn_input_size = embedding_dim + value_dim
@@ -75,19 +76,19 @@ class Speller(nn.Module):
         self.char_distribution_linear = nn.Linear(in_features=linear_in_features, out_features=class_size)
         self.softmax = nn.Softmax(dim=-1)
 
-        rnn1_hidden_state = nn.Parameter(torch.zeros(batch_size, speller_hidden_dim))
-        rnn1_cell_state = nn.Parameter(torch.zeros(batch_size, speller_hidden_dim))
-        rnn2_hidden_state = nn.Parameter(torch.zeros(batch_size, speller_hidden_dim))
-        rnn2_cell_state = nn.Parameter(torch.zeros(batch_size, speller_hidden_dim))
+        rnn1_hidden_state = nn.Parameter(torch.zeros(batch_size, speller_hidden_dim)).to(DEVICE)
+        rnn1_cell_state = nn.Parameter(torch.zeros(batch_size, speller_hidden_dim)).to(DEVICE)
+        rnn2_hidden_state = nn.Parameter(torch.zeros(batch_size, speller_hidden_dim)).to(DEVICE)
+        rnn2_cell_state = nn.Parameter(torch.zeros(batch_size, speller_hidden_dim)).to(DEVICE)
         self.rnn1_hc = (rnn1_hidden_state, rnn1_cell_state)
         self.rnn2_hc = (rnn2_hidden_state, rnn2_cell_state)
-    
+
     def forward(self, listener_output, outputs_length, targets, teacher_forcing):
         timestep = max([len(seq) for seq in targets]) - 1
         targets_length_for_loss = [len(label)-1 for label in targets] # original label lengths
         # batch_size * max_transcript_len (LongTensor)
-        padded_targets = rnn.pad_sequence(targets, batch_first=True).long()
-        targets_for_loss = rnn.pad_sequence(targets, batch_first=True, padding_value=-1).long()
+        padded_targets = rnn.pad_sequence(targets, batch_first=True).long().to(DEVICE)
+        targets_for_loss = rnn.pad_sequence(targets, batch_first=True, padding_value=-1).long().to(DEVICE)
         targets_for_loss = targets_for_loss[:,1:] # only need targets starting from index 1
 
         probs = []
@@ -107,7 +108,7 @@ class Speller(nn.Module):
                 rnn2_hc = self.rnn_layer2(rnn1_hc[0], rnn2_hc)
             else:
                 rnn1_hc, rnn2_hc = self.rnn1_hc, self.rnn2_hc
-            
+
             # decoder_state: batch_size * listener_hidden_dim
             decoder_state = rnn2_hc[0]
             # batch_size * value_dim
@@ -142,22 +143,26 @@ class AttentionContext(nn.Module):
         self.mlp_h = nn.Linear(in_features=h_input_size, out_features=key_dim)
         self.value_projection = nn.Linear(in_features=h_input_size, out_features=value_dim)
         self.softmax = nn.Softmax(dim=2)
-    
+
     def forward(self, decoder_state, listener_output, outputs_length):
         """
         decoder_state: batch_size * decoder_hidden_dim
-        listener_output: batch_size * longest_len * listener_output_dim 
+        listener_output: batch_size * longest_len * listener_output_dim
         """
         # query: batch_size * 1 * decoder_hidden_dim
         # after projection, query: batch_size * 1 * key_dim
+        decoder_state = decoder_state.to(DEVICE)
         query = self.mlp_s(torch.unsqueeze(decoder_state, dim=1))
         # key: batch_size * key_dim * listener_output_dim
+        listener_output = listener_output.to(DEVICE)
         key = self.mlp_h(listener_output)
+        print("query shape", query.shape)
+        print("key shape", key.shape)
         # energy: batch_size * 1 * listener_output_dim
         energy = torch.bmm(query, key.transpose(1,2))
-        # attention: batch_size * 1 * listener_output_dim 
+        # attention: batch_size * 1 * listener_output_dim
         attention = self.softmax(energy)
-        attention_mask = torch.ones(attention.shape)
+        attention_mask = torch.ones(attention.shape).to(DEVICE)
         for i in range(listener_output.shape[0]):
             if i != 0:
                 attention_mask[i][0][outputs_length[i]:] = 0
@@ -165,7 +170,7 @@ class AttentionContext(nn.Module):
         attention = F.normalize(attention, p=1, dim=2)
         # batch_size * listener_output_dim * value_dim
         value = self.value_projection(listener_output)
-        utterance_mask = torch.ones(value.shape)
+        utterance_mask = torch.ones(value.shape).to(DEVICE)
         for i in range(listener_output.shape[0]):
             if i != 0:
                 utterance_mask[i][:][outputs_length[i]:] = 0
@@ -178,13 +183,13 @@ class AttentionContext(nn.Module):
 
 class LAS(nn.Module):
     def __init__(self, input_size, listener_hidden_size, nlayers,
-                 speller_hidden_dim, embedding_dim, 
+                 speller_hidden_dim, embedding_dim,
                  class_size, key_dim, value_dim, batch_size):
         super(LAS, self).__init__()
         self.listener = Listener(input_size=40, hidden_size=listener_hidden_size, nlayers=4)
         self.listener = self.listener.to(DEVICE)
-        self.speller = Speller(listener_hidden_size*2, speller_hidden_dim, 
-                               embedding_dim, class_size, key_dim, value_dim, 
+        self.speller = Speller(listener_hidden_size*2, speller_hidden_dim,
+                               embedding_dim, class_size, key_dim, value_dim,
                                batch_size)
         self.speller = self.speller.to(DEVICE)
 
@@ -193,7 +198,7 @@ class LAS(nn.Module):
         probs, predictions, targets_for_loss, targets_length_for_loss, attentions = self.speller(listener_outputs, outputs_length, targets, teacher_forcing)
 
         return probs, predictions, targets_for_loss, targets_length_for_loss, attentions
-    
+
 
 if __name__ == "__main__":
     u1 = torch.randn((30,40))
@@ -211,13 +216,13 @@ if __name__ == "__main__":
     # attention_model = AttentionContext(200, 512, 256, 500)
     # context = attention_model(decoder_state, padded_outputs, outputs_length)
 
-    # speller_model = Speller(listener_hidden_dim=512, speller_hidden_dim=512, 
-    #                         embedding_dim=256, class_size=33, key_dim=128, value_dim=128, 
+    # speller_model = Speller(listener_hidden_dim=512, speller_hidden_dim=512,
+    #                         embedding_dim=256, class_size=33, key_dim=128, value_dim=128,
     #                         batch_size=3)
     # speller_model(padded_outputs, outputs_length, targets, 0.9)
 
     las = LAS(input_size=40, listener_hidden_size=256, nlayers=4,
-              speller_hidden_dim=512, embedding_dim=256, 
+              speller_hidden_dim=512, embedding_dim=256,
               class_size=34, key_dim=128, value_dim=128, batch_size=2)
     las(inputs, targets, 0.9)
-    
+

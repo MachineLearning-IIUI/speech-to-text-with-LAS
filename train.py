@@ -3,17 +3,18 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 import torch.nn as nn
+import os
 
 from myDataset import myDataset, collate_seq
 from config import MODEL_CONFIG as CONF
 from model import LAS
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+print(DEVICE)
 
 def train(train_loader, model, optimizer, criterion, epoch):
     loss_sum = 0
     perplexity_sum = 0
-    loss = 0
     for step, (inputs, targets) in enumerate(train_loader):
         print(step)
         torch.cuda.empty_cache()
@@ -21,16 +22,16 @@ def train(train_loader, model, optimizer, criterion, epoch):
         probs, predictions, targets_for_loss, targets_length_for_loss, \
         attentions = model(inputs, targets, teacher_forcing=0.9)
 
+        loss = 0
         for i in range(len(probs)):
-            loss += criterion(probs[i], targets_for_loss[:, i])
-        
+            loss = loss + criterion(probs[i], targets_for_loss[:, i])
+
         loss.backward()
         optimizer.step()
-        loss_sum += loss.item()
-        perplexity_sum += np.exp(loss.item() / max(targets_length_for_loss))
+        loss_sum = loss_sum + loss.item()
+        perplexity_sum = perplexity_sum + np.exp(loss.item() / max(targets_length_for_loss))
         print("loss", loss.item())
-        print(np.exp(loss.item() / max(targets_length_for_loss)))
-        loss = 0
+        # print("perplexity", np.exp(loss.item() / max(targets_length_for_loss)))
         if (step+1) % 10 == 0:
             print("epoch {}, step {}, loss per step {}, perplexity {}, finish {}".format(
                 epoch, step, loss_sum/10, perplexity_sum/10, (step+1)*len(inputs)))
@@ -81,23 +82,23 @@ def main(args):
     train_path = "./data/train.npy"
     train_transcripts_path = "./data/train_char.npy"
     train_set = myDataset(train_path, train_transcripts_path)
-    train_loader = DataLoader(train_set, shuffle=True, batch_size=batch_size, collate_fn=collate_seq, num_workers=4) 
-    
+    train_loader = DataLoader(train_set, shuffle=True, batch_size=batch_size, collate_fn=collate_seq, num_workers=4)
+
     # dev_path = "./data/dev.npy"
     # dev_transcripts_path = "./data/dev_char.npy"
     # dev_set = myDataset(dev_path, dev_transcripts_path)
-    # dev_loader = DataLoader(dev_set, shuffle=False, batch_size=batch_size, collate_fn=collate_seq, num_workers=4) 
+    # dev_loader = DataLoader(dev_set, shuffle=False, batch_size=batch_size, collate_fn=collate_seq, num_workers=4)
 
     # test_path = "./data/test.npy"
     # dev_set = myDataset(dev_path, None)
-    # dev_loader = DataLoader(test_set, shuffle=False, batch_size=batch_size, collate_fn=collate_seq, num_workers=4) 
-    
+    # dev_loader = DataLoader(test_set, shuffle=False, batch_size=batch_size, collate_fn=collate_seq, num_workers=4)
+
     model = LAS(input_size, listener_hidden_size, nlayers,
-                speller_hidden_dim, embedding_dim, 
+                speller_hidden_dim, embedding_dim,
                 class_size, key_dim, value_dim, batch_size)
     model = model.to(DEVICE)
-    
-    optimizer = torch.optim.Adam(model.parameters(), 
+
+    optimizer = torch.optim.Adam(model.parameters(),
                 lr=args.lr, weight_decay=args.weight_decay)
     criterion = nn.CrossEntropyLoss(ignore_index=-1)
 
@@ -128,7 +129,7 @@ def arguments():
                         help='L2 regularization')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                         help="learning rate")
-    parser.add_argument('--checkpoint', type=int, default=100, metavar="R",
+    parser.add_argument('--checkpoint', type=int, default=300, metavar="R",
                         help='checkpoint to save model parameters')
     parser.add_argument('--resume', type=bool, default=False, metavar="R",
                         help='resume training from saved weight')
@@ -140,7 +141,7 @@ def arguments():
                         help='number of step to be loaded')
     parser.add_argument('-load-loss', type=str, default=0, metavar="LL",
                         help='loss item to be loaded')
-    
+
     return parser.parse_args()
 
 if __name__ == '__main__':
