@@ -37,7 +37,7 @@ def train(train_loader, model, optimizer, criterion, epoch):
             save_model(epoch, model, optimizer, loss, step, "./weights/")
 
 def dev(dev_loader, model, optimizer, criterion):
-    for step, (inputs, targets) in enumerate(train_loader):
+    for step, (inputs, targets) in enumerate(dev_loader):
         torch.cuda.empty_cache()
         optimizer.zero_grad()
         prediction_list = model.inference(inputs, targets)
@@ -46,7 +46,7 @@ def dev(dev_loader, model, optimizer, criterion):
         for i in range(batch_size):
             pred = ""
             for j in range(len(prediction_list[i])):
-                pred += NUM_2_CHAR[prediction_list[i][j]]
+                pred += NUM_2_CHAR[int(prediction_list[i][j].to("cpu"))]
             print(pred)
 
 
@@ -94,10 +94,10 @@ def main(args):
     train_set = myDataset(train_path, train_transcripts_path)
     train_loader = DataLoader(train_set, shuffle=True, batch_size=batch_size, collate_fn=collate_seq, num_workers=4)
 
-    # dev_path = "./data/dev.npy"
-    # dev_transcripts_path = "./data/dev_char.npy"
-    # dev_set = myDataset(dev_path, dev_transcripts_path)
-    # dev_loader = DataLoader(dev_set, shuffle=False, batch_size=batch_size, collate_fn=collate_seq, num_workers=4)
+    dev_path = "./data/dev.npy"
+    dev_transcripts_path = "./data/dev_char.npy"
+    dev_set = myDataset(dev_path, dev_transcripts_path)
+    dev_loader = DataLoader(dev_set, shuffle=False, batch_size=batch_size, collate_fn=collate_seq, num_workers=4)
 
     # test_path = "./data/test.npy"
     # dev_set = myDataset(dev_path, None)
@@ -140,7 +140,7 @@ def arguments():
                         help='L2 regularization')
     parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
                         help="learning rate")
-    parser.add_argument('--checkpoint', type=int, default=1000, metavar="R",
+    parser.add_argument('--checkpoint', type=int, default=900, metavar="R",
                         help='checkpoint to save model parameters')
     parser.add_argument('--resume', type=bool, default=False, metavar="R",
                         help='resume training from saved weight')

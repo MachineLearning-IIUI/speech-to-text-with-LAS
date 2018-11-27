@@ -4,6 +4,8 @@ from torch.nn.utils import rnn
 import torch.nn.functional as F
 import numpy as np
 
+from vocab import LABEL_MAP
+
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 class Listener(nn.Module):
@@ -135,7 +137,7 @@ class Speller(nn.Module):
 
     def inference(self, listener_output, outputs_length, timestep):
         predictions = []
-        predictions.append(torch.tensor([LABEL_MAP['<sos>'] for i in range(len(listener_output))]))
+        predictions.append(torch.tensor([LABEL_MAP['<sos>'] for i in range(len(listener_output))]).to(DEVICE))
         attentions = []
 
         for i in range(timestep):
@@ -161,6 +163,7 @@ class Speller(nn.Module):
             # 2d tensor
             index = torch.multinomial(prob_distribution, num_samples=1)
             preds = torch.squeeze(index)
+            preds = preds.to(DEVICE)
             predictions.append(preds)
             attentions.append(attention)
 
@@ -247,7 +250,7 @@ class LAS(nn.Module):
 
     def inference(self, inputs, targets):
         listener_outputs, outputs_length = self.listener(inputs)
-        prediction_list = self.speller.inference(listener_output, outputs_length, timestep)
+        prediction_list = self.speller.inference(listener_outputs, outputs_length, timestep=300)
         return prediction_list
 
 
