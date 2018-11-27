@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.nn.utils import rnn
 import torch.nn.functional as F
 import numpy as np
+from vocab import LABEL_MAP
 
 from vocab import LABEL_MAP
 
@@ -134,6 +135,53 @@ class Speller(nn.Module):
         # targets length for loss: a list of len_for_loss (original_len - 1)
         return probs, predictions, targets_for_loss, targets_length_for_loss, attentions
 
+    def inference(self, listener_output, outputs_length, timestep):
+        predictions = []
+        predictions.append(torch.tensor([LABEL_MAP['<sos>'] for i in range(len(listener_output))]))
+        attentions = []
+
+        for i in range(timestep):
+            if i == 0:
+                rnn1_hc, rnn2_hc = self.rnn1_hc, self.rnn2_hc
+            else:
+                embed_input = preds
+                embed = self.embed(embed_input)
+                inputs = torch.cat((embed, context), dim=1)
+                rnn1_hc = self.rnn_layer1(inputs, rnn1_hc)
+                rnn2_hc = self.rnn_layer2(rnn1_hc[0], rnn2_hc)
+
+            # decoder_state: batch_size * listener_hidden_dim
+            decoder_state = rnn2_hc[0]
+            # batch_size * value_dim
+            context, attention = self.attention(decoder_state, listener_output, outputs_length)
+            # batch_size * (speller_hiddem_dim + value_dim)
+            concat_input = torch.cat((decoder_state, context), dim=1)
+            # batch_size * class_size
+            prob_linear = self.char_distribution_linear(concat_input)
+            # batch_size * max_transcript_len
+            prob_distribution = self.softmax(prob_linear)
+            # 2d tensor
+            index = torch.multinomial(prob_distribution, num_samples=1)
+            preds = torch.squeeze(index)
+            predictions.append(preds)
+            attentions.append(attention)
+
+        # batch_size * timestep
+        predictions = torch.stack(predictions, dim=1)
+        predictions = predictions[:,1:] # delete <sos>
+        prediction_list = []
+        for i in range(len(predictions)):
+            tmp = []
+            for j in range(timestep):
+                if predictions[i][j] == LABEL_MAP['<eos>']:
+                    tmp = predictions[i][:j]
+                    break
+            if len(tmp) == 0:
+                tmp = predictions[i]
+            prediction_list.append(tmp)
+        print(prediction_list)
+        return prediction_list # a list of tensors
+
 
     def inference(self, listener_output, outputs_length, timestep):
         predictions = []
@@ -263,20 +311,23 @@ if __name__ == "__main__":
     # t3 = torch.randint(0,32,(7,))
     inputs = [u1, u2]
     targets = [t1, t2]
-    # listener_model = Listener(40, 256, 4)
-    # padded_outputs, outputs_length = listener_model(inputs)
+    listener_model = Listener(40, 256, 4)
+    padded_outputs, outputs_length = listener_model(inputs)
 
     # decoder_state = torch.rand((3,200))
     # attention_model = AttentionContext(200, 512, 256, 500)
     # context = attention_model(decoder_state, padded_outputs, outputs_length)
 
-    # speller_model = Speller(listener_hidden_dim=512, speller_hidden_dim=512,
-    #                         embedding_dim=256, class_size=33, key_dim=128, value_dim=128,
-    #                         batch_size=3)
+    speller_model = Speller(listener_hidden_dim=512, speller_hidden_dim=512,
+                            embedding_dim=256, class_size=34, key_dim=128, value_dim=128,
+                            batch_size=2)
     # speller_model(padded_outputs, outputs_length, targets, 0.9)
+    speller_model.inference(padded_outputs, outputs_length, 10)
 
-    las = LAS(input_size=40, listener_hidden_size=256, nlayers=4,
-              speller_hidden_dim=512, embedding_dim=256,
-              class_size=34, key_dim=128, value_dim=128, batch_size=2)
-    las(inputs, targets, 0.9)
+    # las = LAS(input_size=40, listener_hidden_size=256, nlayers=4,
+    #           speller_hidden_dim=512, embedding_dim=256,
+    #           class_size=34, key_dim=128, value_dim=128, batch_size=2)
+    # las(inputs, targets, 0.9)
+
+
 
