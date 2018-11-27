@@ -8,7 +8,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 class myDataset(Dataset):
     def __init__(self, data_path, transcripts_path):
-        self.data = np.load(data_path, encoding='bytes')
+        self.data = np.load(data_path, encoding='bytes')[:24720]
         self.flag = False
         if transcripts_path != None:
             self.label = np.load(transcripts_path)

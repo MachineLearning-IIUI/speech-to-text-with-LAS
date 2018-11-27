@@ -8,6 +8,7 @@ import os
 from myDataset import myDataset, collate_seq
 from config import MODEL_CONFIG as CONF
 from model import LAS
+from vocab import NUM_2_CHAR
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(DEVICE)
@@ -16,7 +17,6 @@ def train(train_loader, model, optimizer, criterion, epoch):
     loss_sum = 0
     perplexity_sum = 0
     for step, (inputs, targets) in enumerate(train_loader):
-        print(step)
         torch.cuda.empty_cache()
         optimizer.zero_grad()
         probs, predictions, targets_for_loss, targets_length_for_loss, \
@@ -28,17 +28,27 @@ def train(train_loader, model, optimizer, criterion, epoch):
 
         loss.backward()
         optimizer.step()
-        loss_sum = loss_sum + loss.item()
-        perplexity_sum = perplexity_sum + np.exp(loss.item() / max(targets_length_for_loss))
-        print("loss", loss.item())
-        # print("perplexity", np.exp(loss.item() / max(targets_length_for_loss)))
-        if (step+1) % 10 == 0:
+        perplexity_sum = perplexity_sum + np.exp(loss.item() / len(inputs) / max(targets_length_for_loss))
+        if step % 10 ==0:
             print("epoch {}, step {}, loss per step {}, perplexity {}, finish {}".format(
-                epoch, step, loss_sum/10, perplexity_sum/10, (step+1)*len(inputs)))
-            loss_sum = 0
-            perplexity_sum = 0
+                epoch, step, loss/len(inputs), perplexity_sum, (step+1)*len(inputs)))
+        perplexity_sum = 0
         if (step+1) % args.checkpoint == 0:
             save_model(epoch, model, optimizer, loss, step, "./weights/")
+
+def dev(dev_loader, model, optimizer, criterion):
+    for step, (inputs, targets) in enumerate(train_loader):
+        torch.cuda.empty_cache()
+        optimizer.zero_grad()
+        prediction_list = model.inference(inputs, targets)
+        print(prediction_list)
+        batch_size = len(prediction_list)
+        for i in range(batch_size):
+            pred = ""
+            for j in range(len(prediction_list[i])):
+                pred += NUM_2_CHAR[prediction_list[i][j]]
+            print(pred)
+
 
 
 def save_model(epoch, model, optimizer, loss, step, save_path):
@@ -118,18 +128,19 @@ def main(args):
         train(train_loader, model, optimizer, criterion, epoch)
         # model.eval()
         # eval()
-    # test()
+    model.eval()
+    dev(dev_loader, model, optimizer, criterion)
 
 def arguments():
     parser = argparse.ArgumentParser(description="LAS")
     # parameters for training process
-    parser.add_argument('--epochs', type=int, default=10, metavar='E',
+    parser.add_argument('--epochs', type=int, default=20, metavar='E',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--weight-decay', type=float, default=0.001,
                         help='L2 regularization')
-    parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
+    parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
                         help="learning rate")
-    parser.add_argument('--checkpoint', type=int, default=300, metavar="R",
+    parser.add_argument('--checkpoint', type=int, default=1000, metavar="R",
                         help='checkpoint to save model parameters')
     parser.add_argument('--resume', type=bool, default=False, metavar="R",
                         help='resume training from saved weight')

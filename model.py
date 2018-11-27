@@ -76,10 +76,10 @@ class Speller(nn.Module):
         self.char_distribution_linear = nn.Linear(in_features=linear_in_features, out_features=class_size)
         self.softmax = nn.Softmax(dim=-1)
 
-        rnn1_hidden_state = nn.Parameter(torch.zeros(batch_size, speller_hidden_dim)).to(DEVICE)
-        rnn1_cell_state = nn.Parameter(torch.zeros(batch_size, speller_hidden_dim)).to(DEVICE)
-        rnn2_hidden_state = nn.Parameter(torch.zeros(batch_size, speller_hidden_dim)).to(DEVICE)
-        rnn2_cell_state = nn.Parameter(torch.zeros(batch_size, speller_hidden_dim)).to(DEVICE)
+        rnn1_hidden_state = nn.Parameter(torch.randn(batch_size, speller_hidden_dim)).to(DEVICE)
+        rnn1_cell_state = nn.Parameter(torch.randn(batch_size, speller_hidden_dim)).to(DEVICE)
+        rnn2_hidden_state = nn.Parameter(torch.randn(batch_size, speller_hidden_dim)).to(DEVICE)
+        rnn2_cell_state = nn.Parameter(torch.randn(batch_size, speller_hidden_dim)).to(DEVICE)
         self.rnn1_hc = (rnn1_hidden_state, rnn1_cell_state)
         self.rnn2_hc = (rnn2_hidden_state, rnn2_cell_state)
 
@@ -133,6 +133,54 @@ class Speller(nn.Module):
         return probs, predictions, targets_for_loss, targets_length_for_loss, attentions
 
 
+    def inference(self, listener_output, outputs_length, timestep):
+        predictions = []
+        predictions.append(torch.tensor([LABEL_MAP['<sos>'] for i in range(len(listener_output))]))
+        attentions = []
+
+        for i in range(timestep):
+            if i == 0:
+                rnn1_hc, rnn2_hc = self.rnn1_hc, self.rnn2_hc
+            else:
+                embed_input = preds
+                embed = self.embed(embed_input)
+                inputs = torch.cat((embed, context), dim=1)
+                rnn1_hc = self.rnn_layer1(inputs, rnn1_hc)
+                rnn2_hc = self.rnn_layer2(rnn1_hc[0], rnn2_hc)
+
+            # decoder_state: batch_size * listener_hidden_dim
+            decoder_state = rnn2_hc[0]
+            # batch_size * value_dim
+            context, attention = self.attention(decoder_state, listener_output, outputs_length)
+            # batch_size * (speller_hiddem_dim + value_dim)
+            concat_input = torch.cat((decoder_state, context), dim=1)
+            # batch_size * class_size
+            prob_linear = self.char_distribution_linear(concat_input)
+            # batch_size * max_transcript_len
+            prob_distribution = self.softmax(prob_linear)
+            # 2d tensor
+            index = torch.multinomial(prob_distribution, num_samples=1)
+            preds = torch.squeeze(index)
+            predictions.append(preds)
+            attentions.append(attention)
+
+        # batch_size * timestep
+        predictions = torch.stack(predictions, dim=1)
+        predictions = predictions[:,1:] # delete <sos>
+        prediction_list = []
+        for i in range(len(predictions)):
+            tmp = []
+            for j in range(timestep):
+                if predictions[i][j] == LABEL_MAP['<eos>']:
+                    tmp = predictions[i][:j]
+                    break
+            if len(tmp) == 0:
+                tmp = predictions[i]
+            prediction_list.append(tmp)
+        print(prediction_list)
+        return prediction_list # a list of tensors
+
+
 class AttentionContext(nn.Module):
     def __init__(self, s_input_size, h_input_size, key_dim, value_dim):
         """
@@ -156,8 +204,6 @@ class AttentionContext(nn.Module):
         # key: batch_size * key_dim * listener_output_dim
         listener_output = listener_output.to(DEVICE)
         key = self.mlp_h(listener_output)
-        print("query shape", query.shape)
-        print("key shape", key.shape)
         # energy: batch_size * 1 * listener_output_dim
         energy = torch.bmm(query, key.transpose(1,2))
         # attention: batch_size * 1 * listener_output_dim
@@ -198,6 +244,11 @@ class LAS(nn.Module):
         probs, predictions, targets_for_loss, targets_length_for_loss, attentions = self.speller(listener_outputs, outputs_length, targets, teacher_forcing)
 
         return probs, predictions, targets_for_loss, targets_length_for_loss, attentions
+
+    def inference(self, inputs, targets):
+        listener_outputs, outputs_length = self.listener(inputs)
+        prediction_list = self.speller.inference(listener_output, outputs_length, timestep)
+        return prediction_list
 
 
 if __name__ == "__main__":
