@@ -34,7 +34,6 @@ class Listener(nn.Module):
         batch_size = len(inputs_list)
 
         inputs_length = [len(utterance) for utterance in inputs_list] # original utterance lengths
-        max_length = max(inputs_length)
         inputs_length = torch.LongTensor(inputs_length)
         outputs_length = inputs_length // 8 # output utterance lengths
 

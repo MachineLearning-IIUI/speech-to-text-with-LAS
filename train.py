@@ -89,8 +89,8 @@ def main(args):
     value_dim = CONF["value_dim"]
     batch_size = CONF["batch_size"]
 
-    train_path = "./data/train.npy"
-    train_transcripts_path = "./data/train_char.npy"
+    train_path = "./data/dev.npy"
+    train_transcripts_path = "./data/dev_char.npy"
     train_set = myDataset(train_path, train_transcripts_path)
     train_loader = DataLoader(train_set, shuffle=True, batch_size=batch_size, collate_fn=collate_seq, num_workers=4)
 
