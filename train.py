@@ -14,29 +14,28 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(DEVICE)
 
 def train(train_loader, model, optimizer, criterion, epoch):
-    loss_sum = 0
-    perplexity_sum = 0
     for step, (inputs, targets) in enumerate(train_loader):
         torch.cuda.empty_cache()
         optimizer.zero_grad()
         probs, predictions, targets_for_loss, targets_length_for_loss, \
-        attentions = model(inputs, targets, teacher_forcing=0.9)
+        attentions = model(inputs, targets, teacher_forcing=0.1)
 
+        perplexity = 0
         loss = 0
         for i in range(len(probs)):
             loss = loss + criterion(probs[i], targets_for_loss[:, i])
 
         loss.backward()
         optimizer.step()
-        perplexity_sum = perplexity_sum + np.exp(loss.item() / len(inputs) / max(targets_length_for_loss))
+        perplexity = np.exp(loss.item() / len(inputs) / max(targets_length_for_loss))
         if step % 10 ==0:
             print("epoch {}, step {}, loss per step {}, perplexity {}, finish {}".format(
-                epoch, step, loss/len(inputs), perplexity_sum, (step+1)*len(inputs)))
-        perplexity_sum = 0
+                epoch, step, loss/len(inputs), perplexity, (step+1)*len(inputs)))
         if (step+1) % args.checkpoint == 0:
             save_model(epoch, model, optimizer, loss, step, "./weights/")
 
-def dev(dev_loader, model, optimizer, criterion):
+def dev(dev_loader, model, optimizer, criterion, pathname):
+    p = []
     for step, (inputs, targets) in enumerate(dev_loader):
         torch.cuda.empty_cache()
         optimizer.zero_grad()
@@ -48,7 +47,11 @@ def dev(dev_loader, model, optimizer, criterion):
             for j in range(len(prediction_list[i])):
                 pred += NUM_2_CHAR[int(prediction_list[i][j].to("cpu"))]
             print(pred)
-
+            p.append(pred)
+    p = np.array(p)
+    with open(pathname, 'w') as f:
+        for i in range(len(p)):
+            f.write(str(i) + "," + p[i] + "\n")
 
 
 def save_model(epoch, model, optimizer, loss, step, save_path):
@@ -89,8 +92,8 @@ def main(args):
     value_dim = CONF["value_dim"]
     batch_size = CONF["batch_size"]
 
-    train_path = "./data/dev.npy"
-    train_transcripts_path = "./data/dev_char.npy"
+    train_path = "./data/train.npy"
+    train_transcripts_path = "./data/train_char.npy"
     train_set = myDataset(train_path, train_transcripts_path)
     train_loader = DataLoader(train_set, shuffle=True, batch_size=batch_size, collate_fn=collate_seq, num_workers=4)
 
@@ -99,9 +102,9 @@ def main(args):
     dev_set = myDataset(dev_path, dev_transcripts_path)
     dev_loader = DataLoader(dev_set, shuffle=False, batch_size=batch_size, collate_fn=collate_seq, num_workers=4)
 
-    # test_path = "./data/test.npy"
-    # dev_set = myDataset(dev_path, None)
-    # dev_loader = DataLoader(test_set, shuffle=False, batch_size=batch_size, collate_fn=collate_seq, num_workers=4)
+    test_path = "./data/test.npy"
+    test_set = myDataset(test_path, None)
+    test_loader = DataLoader(test_set, shuffle=False, batch_size=batch_size, collate_fn=collate_seq, num_workers=4)
 
     model = LAS(input_size, listener_hidden_size, nlayers,
                 speller_hidden_dim, embedding_dim,
@@ -129,7 +132,7 @@ def main(args):
         # model.eval()
         # eval()
     model.eval()
-    dev(dev_loader, model, optimizer, criterion)
+    dev(test_loader, model, optimizer, criterion, "submission.csv")
 
 def arguments():
     parser = argparse.ArgumentParser(description="LAS")
@@ -140,7 +143,7 @@ def arguments():
                         help='L2 regularization')
     parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
                         help="learning rate")
-    parser.add_argument('--checkpoint', type=int, default=900, metavar="R",
+    parser.add_argument('--checkpoint', type=int, default=1000, metavar="R",
                         help='checkpoint to save model parameters')
     parser.add_argument('--resume', type=bool, default=False, metavar="R",
                         help='resume training from saved weight')
