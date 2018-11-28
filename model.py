@@ -42,22 +42,25 @@ class Listener(nn.Module):
 
         for i in range(self.nlayers):
             # lstm_output: longest_len * batch_size * (hidden_size*2)
-            lstm_outputs, _ = self.lstm_list[i](padded_inputs)
+            if i == 0:
+                lstm_outputs, _ = self.lstm_list[i](padded_inputs)
+            else:
+                lstm_outputs, _ = self.lstm_list[i](lstm_outputs)
 
             if i != self.nlayers - 1:
                 longest_len = lstm_outputs.shape[0]
                 dim = lstm_outputs.shape[2]
+                # transpose lstm output to batch_size * longest_len * dim
+                lstm_outputs = lstm_output.permute(1, 0, 2)
                 # chop off the extra
                 if longest_len % 2 != 0:
-                    lstm_outputs = lstm_outputs[:longest_len-1]
+                    lstm_outputs = lstm_outputs[:,0:-1,...]
                 longest_len = longest_len // 2
                 dim = dim * 2
-                # transpose lstm output to batch_size * longest_len * dim
-                padded_inputs = lstm_outputs.transpose(0, 1)
                 # reshape to batch_size * (longest_len/2) * (dim*2)
-                padded_inputs = padded_inputs.contiguous().view(batch_size, longest_len, dim)
+                lstm_outputs = torch.reshape(lstm_outputs, (batch_size, longest_len, dim))
                 # transpose back to (longest_len/2) * batch_size * (dim*2)
-                padded_inputs = padded_inputs.transpose(0, 1)
+                lstm_outputs = lstm_outputs.permute(1, 0, 2)
 
         # batch_size * longest_len * (hidden_size*2)
         lstm_outputs = lstm_outputs.transpose(0, 1)

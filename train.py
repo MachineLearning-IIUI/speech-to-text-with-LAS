@@ -18,7 +18,7 @@ def train(train_loader, model, optimizer, criterion, epoch):
         torch.cuda.empty_cache()
         optimizer.zero_grad()
         probs, predictions, targets_for_loss, targets_length_for_loss, \
-        attentions = model(inputs, targets, teacher_forcing=0.1)
+        attentions = model(inputs, targets, teacher_forcing=0.5)
 
         perplexity = 0
         loss = 0
