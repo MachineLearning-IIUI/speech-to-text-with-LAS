@@ -51,14 +51,14 @@ class Listener(nn.Module):
                 longest_len = lstm_outputs.shape[0]
                 dim = lstm_outputs.shape[2]
                 # transpose lstm output to batch_size * longest_len * dim
-                lstm_outputs = lstm_output.permute(1, 0, 2)
+                lstm_outputs = lstm_outputs.permute(1, 0, 2)
                 # chop off the extra
                 if longest_len % 2 != 0:
                     lstm_outputs = lstm_outputs[:,0:-1,...]
                 longest_len = longest_len // 2
                 dim = dim * 2
                 # reshape to batch_size * (longest_len/2) * (dim*2)
-                lstm_outputs = torch.reshape(lstm_outputs, (batch_size, longest_len, dim))
+                lstm_outputs = lstm_outputs.contiguous().view(-1, longest_len, dim)
                 # transpose back to (longest_len/2) * batch_size * (dim*2)
                 lstm_outputs = lstm_outputs.permute(1, 0, 2)
 

@@ -4,6 +4,7 @@ import torch
 from torch.utils.data import DataLoader
 import torch.nn as nn
 import os
+import matplotlib.pyplot as plt
 
 from myDataset import myDataset, collate_seq
 from config import MODEL_CONFIG as CONF
@@ -18,7 +19,7 @@ def train(train_loader, model, optimizer, criterion, epoch):
         torch.cuda.empty_cache()
         optimizer.zero_grad()
         probs, predictions, targets_for_loss, targets_length_for_loss, \
-        attentions = model(inputs, targets, teacher_forcing=0.5)
+        attentions = model(inputs, targets, teacher_forcing=0.9)
 
         perplexity = 0
         loss = 0
@@ -28,11 +29,26 @@ def train(train_loader, model, optimizer, criterion, epoch):
         loss.backward()
         optimizer.step()
         perplexity = np.exp(loss.item() / len(inputs) / max(targets_length_for_loss))
-        if step % 10 ==0:
+        if step % 10 == 0:
             print("epoch {}, step {}, loss per step {}, perplexity {}, finish {}".format(
                 epoch, step, loss/len(inputs), perplexity, (step+1)*len(inputs)))
         if (step+1) % args.checkpoint == 0:
             save_model(epoch, model, optimizer, loss, step, "./weights/")
+
+def attention_map(dev_loader, model):
+    for step, (inputs, targets) in enumerate(dev_loader):
+        if step == 0:
+            torch.cuda.empty_cache()
+            probs, predictions, targets_for_loss, targets_length_for_loss, \
+            attentions = model(inputs, targets, teacher_forcing=0.9)
+            attentions_tensor = torch.cat(attentions, dim=1)
+            print(attentions_tensor.shape)
+            data = attentions_tensor[0]
+            print(data.shape)
+            plt.imshow(data.cpu().detach().numpy(), cmap='hot')
+            plt.show()
+            plt.savefig('am.jpg')
+            break
 
 def dev(dev_loader, model, optimizer, criterion, pathname):
     p = []
@@ -126,6 +142,8 @@ def main(args):
                 optimizer,
                 "./weights/"
             )
+    # model.eval()
+    # attention_map(dev_loader, model)
     for epoch in range(start_epoch, nepochs):
         model.train()
         train(train_loader, model, optimizer, criterion, epoch)
@@ -143,7 +161,7 @@ def arguments():
                         help='L2 regularization')
     parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
                         help="learning rate")
-    parser.add_argument('--checkpoint', type=int, default=1000, metavar="R",
+    parser.add_argument('--checkpoint', type=int, default=300, metavar="R",
                         help='checkpoint to save model parameters')
     parser.add_argument('--resume', type=bool, default=False, metavar="R",
                         help='resume training from saved weight')
