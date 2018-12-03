@@ -235,15 +235,18 @@ class AttentionContext(nn.Module):
         decoder_state: batch_size * decoder_hidden_dim
         listener_output: batch_size * longest_len * listener_output_dim
         """
-        # query: batch_size * 1 * decoder_hidden_dim
-        # after projection, query: batch_size * 1 * key_dim
         decoder_state = decoder_state.to(DEVICE)
-        query = self.mlp_s(torch.unsqueeze(decoder_state, dim=1))
-        # key: batch_size * key_dim * listener_output_dim
+        # query: batch_size * 1 * decoder_hidden_dim
+        query = torch.unsqueeze(decoder_state, dim=1)
+        # after projection, query: batch_size * 1 * key_dim
+        query = self.mlp_s(query)
+
         listener_output = listener_output.to(DEVICE)
+        # key: batch_size * key_dim * listener_output_dim
         key = self.mlp_h(listener_output)
+        key = key.transpose(1, 2)
         # energy: batch_size * 1 * listener_output_dim
-        energy = torch.bmm(query, key.transpose(1,2))
+        energy = torch.bmm(query, key)
         # attention: batch_size * 1 * listener_output_dim
         attention = self.softmax(energy)
         attention_mask = torch.ones(attention.shape).to(DEVICE)
