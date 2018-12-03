@@ -2,9 +2,8 @@ import torch
 import torch.nn as nn
 from torch.nn.utils import rnn
 import torch.nn.functional as F
+from torch.autograd import Variable
 import numpy as np
-from vocab import LABEL_MAP
-
 from vocab import LABEL_MAP
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -252,16 +251,18 @@ class AttentionContext(nn.Module):
         attention_mask = torch.ones(attention.shape).to(DEVICE)
         for i in range(listener_output.shape[0]):
             if i != 0:
-                attention_mask[i][0][outputs_length[i]:] = 0
+                attention_mask[i, :, outputs_length[i]:] = 0
+        attention_mask = Variable(attention_mask)
         attention = attention * attention_mask
         attention = F.normalize(attention, p=1, dim=2)
         # batch_size * listener_output_dim * value_dim
         value = self.value_projection(listener_output)
-        utterance_mask = torch.ones(value.shape).to(DEVICE)
-        for i in range(listener_output.shape[0]):
-            if i != 0:
-                utterance_mask[i][:][outputs_length[i]:] = 0
-        value = value * utterance_mask
+        # utterance_mask = torch.ones(value.shape).to(DEVICE)
+        # for i in range(listener_output.shape[0]):
+        #     if i != 0:
+        #         utterance_mask[i][:][outputs_length[i]:] = 0
+        # value = value * utterance_mask
+
         # context: batch_size * 1 * value_dim
         context = torch.bmm(attention, value)
         # context: batch_size * value_dim
@@ -317,5 +318,5 @@ if __name__ == "__main__":
     las = LAS(input_size=40, listener_hidden_size=256, nlayers=4,
               speller_hidden_dim=512, embedding_dim=256,
               class_size=34, key_dim=128, value_dim=128, batch_size=3)
-    # las(inputs, targets, 0.9)
-    las.inference(inputs, targets)
+    las(inputs, targets, 0.9)
+    # las.inference(inputs, targets)
