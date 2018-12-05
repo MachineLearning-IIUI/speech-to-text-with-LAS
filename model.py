@@ -36,36 +36,41 @@ class Listener(nn.Module):
         inputs_length = [len(utterance) for utterance in inputs_list] # original utterance lengths
         inputs_length = torch.LongTensor(inputs_length)
         outputs_length = inputs_length // 8 # output utterance lengths
-
-        # longest_len * batch_size * 40
-        padded_inputs = rnn.pad_sequence(inputs_list).to(DEVICE)
+        
+        # packed_inputs.data.shape: (sum_len * 40)
+        packed_inputs = rnn.pack_sequence(inputs_list)
 
         for i in range(self.nlayers):
-            # lstm_output: longest_len * batch_size * (hidden_size*2)
+            # lstm_output: sum_len * (hidden_size*2)
             if i == 0:
-                lstm_outputs, _ = self.lstm_list[i](padded_inputs)
+                lstm_outputs, _ = self.lstm_list[i](packed_inputs)
             else:
-                lstm_outputs, _ = self.lstm_list[i](lstm_outputs)
+                lstm_outputs, _ = self.lstm_list[i](packed_inputs)
+            
+            # unpacked_outputs shape: max_len * batch_size * (hidden_size*2)
+            unpacked_outputs, _ = rnn.pad_packed_sequence(lstm_outputs)
 
             if i != self.nlayers - 1:
-                longest_len = lstm_outputs.shape[0]
-                dim = lstm_outputs.shape[2]
+                longest_len = unpacked_outputs.shape[0]
+                dim = unpacked_outputs.shape[2]
                 # transpose lstm output to batch_size * longest_len * dim
-                lstm_outputs = lstm_outputs.permute(1, 0, 2)
+                unpacked_outputs = unpacked_outputs.permute(1, 0, 2)
                 # chop off the extra
                 if longest_len % 2 != 0:
-                    lstm_outputs = lstm_outputs[:,0:-1,...]
+                    unpacked_outputs = unpacked_outputs[:,0:-1,...]
                 longest_len = longest_len // 2
                 dim = dim * 2
                 # reshape to batch_size * (longest_len/2) * (dim*2)
-                lstm_outputs = lstm_outputs.contiguous().view(-1, longest_len, dim)
+                unpacked_outputs = unpacked_outputs.contiguous().view(-1, longest_len, dim)
                 # transpose back to (longest_len/2) * batch_size * (dim*2)
-                lstm_outputs = lstm_outputs.permute(1, 0, 2)
+                unpacked_outputs = unpacked_outputs.permute(1, 0, 2)
+                lengths = inputs_length // (2 ** (i+1))
+                packed_inputs = rnn.pack_padded_sequence(unpacked_outputs, lengths)
 
         # batch_size * longest_len * (hidden_size*2)
-        lstm_outputs = lstm_outputs.transpose(0, 1)
+        unpacked_outputs = unpacked_outputs.transpose(0, 1)
         # outputs_length is a 1d tensor
-        return lstm_outputs, outputs_length
+        return unpacked_outputs, outputs_length
 
 class Speller(nn.Module):
     def __init__(self, listener_hidden_dim, speller_hidden_dim,
