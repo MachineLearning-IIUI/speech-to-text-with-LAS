@@ -28,7 +28,7 @@ def train(train_loader, model, optimizer, criterion, epoch):
 
         loss.backward()
         optimizer.step()
-        perplexity = np.exp(loss.item() / len(inputs) / max(targets_length_for_loss))
+        perplexity = np.exp(loss.item() / max(targets_length_for_loss))
         if step % 10 == 0:
             print("epoch {}, step {}, loss per step {}, perplexity {}, finish {}".format(
                 epoch, step, loss/len(inputs), perplexity, (step+1)*len(inputs)))
@@ -56,13 +56,16 @@ def dev(dev_loader, model, optimizer, criterion, pathname):
         torch.cuda.empty_cache()
         optimizer.zero_grad()
         prediction_list = model.inference(inputs, targets)
-        print(prediction_list)
         batch_size = len(prediction_list)
         for i in range(batch_size):
             pred = ""
             for j in range(len(prediction_list[i])):
                 pred += NUM_2_CHAR[int(prediction_list[i][j].to("cpu"))]
-            print(pred)
+            print("pred: ", pred)
+            target = ""
+            for j in range(len(targets[i])):
+                target += NUM_2_CHAR[int(targets[i][j].to("cpu"))]
+            print("target", target)
             p.append(pred)
     p = np.array(p)
     with open(pathname, 'w') as f:
@@ -150,7 +153,7 @@ def main(args):
         # model.eval()
         # eval()
     model.eval()
-    dev(test_loader, model, optimizer, criterion, "submission.csv")
+    dev(dev_loader, model, optimizer, criterion, "submission.csv")
 
 def arguments():
     parser = argparse.ArgumentParser(description="LAS")
@@ -161,7 +164,7 @@ def arguments():
                         help='L2 regularization')
     parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
                         help="learning rate")
-    parser.add_argument('--checkpoint', type=int, default=300, metavar="R",
+    parser.add_argument('--checkpoint', type=int, default=550, metavar="R",
                         help='checkpoint to save model parameters')
     parser.add_argument('--resume', type=bool, default=False, metavar="R",
                         help='resume training from saved weight')

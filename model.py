@@ -1,3 +1,4 @@
+import pdb
 import torch
 import torch.nn as nn
 from torch.nn.utils import rnn
@@ -80,26 +81,19 @@ class Speller(nn.Module):
         self.char_distribution_linear = nn.Linear(in_features=linear_in_features, out_features=class_size)
         self.softmax = nn.Softmax(dim=-1)
 
-        rnn1_hidden_state = nn.Parameter(torch.zeros(batch_size, speller_hidden_dim)).to(DEVICE)
-        rnn1_cell_state = nn.Parameter(torch.zeros(batch_size, speller_hidden_dim)).to(DEVICE)
-        rnn2_hidden_state = nn.Parameter(torch.zeros(batch_size, speller_hidden_dim)).to(DEVICE)
-        rnn2_cell_state = nn.Parameter(torch.zeros(batch_size, speller_hidden_dim)).to(DEVICE)
-        self.rnn1_hc = (rnn1_hidden_state, rnn1_cell_state)
-        self.rnn2_hc = (rnn2_hidden_state, rnn2_cell_state)
-        self.init_context = nn.Parameter(torch.zeros(batch_size, value_dim)).to(DEVICE)
+        self.rnn1_hidden_state = nn.Parameter(torch.zeros(batch_size, speller_hidden_dim)).to(DEVICE)
+        self.rnn1_cell_state = nn.Parameter(torch.zeros(batch_size, speller_hidden_dim)).to(DEVICE)
+        self.rnn2_hidden_state = nn.Parameter(torch.zeros(batch_size, speller_hidden_dim)).to(DEVICE)
+        self.rnn2_cell_state = nn.Parameter(torch.zeros(batch_size, speller_hidden_dim)).to(DEVICE)
         self.speller_hidden_dim = speller_hidden_dim
-        self.value_dim = value_dim
 
     def forward(self, listener_output, outputs_length, targets, teacher_forcing):
-        if self.rnn1_hc[0].shape[0] != len(listener_output):
+        if self.rnn1_hidden_state.shape[0] != len(listener_output):
             batch_size = len(listener_output)
-            rnn1_hidden_state = nn.Parameter(torch.randn(batch_size, self.speller_hidden_dim)).to(DEVICE)
-            rnn1_cell_state = nn.Parameter(torch.randn(batch_size, self.speller_hidden_dim)).to(DEVICE)
-            rnn2_hidden_state = nn.Parameter(torch.randn(batch_size, self.speller_hidden_dim)).to(DEVICE)
-            rnn2_cell_state = nn.Parameter(torch.randn(batch_size, self.speller_hidden_dim)).to(DEVICE)
-            self.rnn1_hc = (rnn1_hidden_state, rnn1_cell_state)
-            self.rnn2_hc = (rnn2_hidden_state, rnn2_cell_state)
-            self.init_context = nn.Parameter(torch.zeros(batch_size, self.value_dim)).to(DEVICE)
+            self.rnn1_hidden_state = nn.Parameter(torch.zeros(batch_size, self.speller_hidden_dim)).to(DEVICE)
+            self.rnn1_cell_state = nn.Parameter(torch.zeros(batch_size, self.speller_hidden_dim)).to(DEVICE)
+            self.rnn2_hidden_state = nn.Parameter(torch.zeros(batch_size, self.speller_hidden_dim)).to(DEVICE)
+            self.rnn2_cell_state = nn.Parameter(torch.zeros(batch_size, self.speller_hidden_dim)).to(DEVICE)
 
         targets_length_for_loss = [len(transcript)-1 for transcript in targets] # original transcript length - 1
         timestep = max(targets_length_for_loss) # max_transcript_len - 1
@@ -112,6 +106,12 @@ class Speller(nn.Module):
         predictions = []
         attentions = []
 
+        rnn1_h = self.rnn1_hidden_state
+        rnn1_c = self.rnn1_cell_state
+        rnn2_h = self.rnn2_hidden_state
+        rnn2_c = self.rnn2_cell_state
+        context, attention = self.attention(rnn2_h, listener_output, outputs_length)
+
         for i in range(timestep):
             if i != 0:
                 if np.random.random() < teacher_forcing:
@@ -121,18 +121,16 @@ class Speller(nn.Module):
                 else:
                     embed = self.embed(preds)
                 inputs = torch.cat((embed, context), dim=1)
-                rnn1_hc = self.rnn_layer1(inputs, rnn1_hc)
-                rnn2_hc = self.rnn_layer2(rnn1_hc[0], rnn2_hc)
+                rnn1_h, rnn1_c = self.rnn_layer1(inputs, (rnn1_h, rnn1_c))
+                rnn2_h, rnn2_c = self.rnn_layer2(rnn1_h, (rnn2_h, rnn2_c))
             else: # i == 0
                 embed = self.embed(padded_targets[:,0])
-                context = self.init_context
                 inputs = torch.cat((embed, context), dim=1)
-                rnn1_hc, rnn2_hc = self.rnn1_hc, self.rnn2_hc
-                rnn1_hc = self.rnn_layer1(inputs, rnn1_hc)
-                rnn2_hc = self.rnn_layer2(rnn1_hc[0], rnn2_hc)
+                rnn1_h, rnn1_c = self.rnn_layer1(inputs, (rnn1_h, rnn1_c))
+                rnn2_h, rnn2_c = self.rnn_layer2(rnn1_h, (rnn2_h, rnn2_c))
 
             # decoder_state: batch_size * listener_hidden_dim
-            decoder_state = rnn2_hc[0]
+            decoder_state = rnn2_h
             # batch_size * value_dim
             context, attention = self.attention(decoder_state, listener_output, outputs_length)
             # batch_size * (speller_hiddem_dim + value_dim)
@@ -155,38 +153,39 @@ class Speller(nn.Module):
         return probs, predictions, targets_for_loss, targets_length_for_loss, attentions
 
     def inference(self, listener_output, outputs_length, timestep):
-        if self.rnn1_hc[0].shape[0] != len(listener_output):
+        if self.rnn1_hidden_state.shape[0] != len(listener_output):
             batch_size = len(listener_output)
-            rnn1_hidden_state = nn.Parameter(torch.randn(batch_size, self.speller_hidden_dim)).to(DEVICE)
-            rnn1_cell_state = nn.Parameter(torch.randn(batch_size, self.speller_hidden_dim)).to(DEVICE)
-            rnn2_hidden_state = nn.Parameter(torch.randn(batch_size, self.speller_hidden_dim)).to(DEVICE)
-            rnn2_cell_state = nn.Parameter(torch.randn(batch_size, self.speller_hidden_dim)).to(DEVICE)
-            self.rnn1_hc = (rnn1_hidden_state, rnn1_cell_state)
-            self.rnn2_hc = (rnn2_hidden_state, rnn2_cell_state)
-            self.init_context = nn.Parameter(torch.zeros(batch_size, self.value_dim)).to(DEVICE)
+            self.rnn1_hidden_state = nn.Parameter(torch.zeros(batch_size, self.speller_hidden_dim)).to(DEVICE)
+            self.rnn1_cell_state = nn.Parameter(torch.zeros(batch_size, self.speller_hidden_dim)).to(DEVICE)
+            self.rnn2_hidden_state = nn.Parameter(torch.zeros(batch_size, self.speller_hidden_dim)).to(DEVICE)
+            self.rnn2_cell_state = nn.Parameter(torch.zeros(batch_size, self.speller_hidden_dim)).to(DEVICE)
 
         predictions = []
         preds = torch.tensor([LABEL_MAP['<sos>'] for i in range(len(listener_output))]).to(DEVICE)
         attentions = []
 
+        rnn1_h = self.rnn1_hidden_state
+        rnn1_c = self.rnn1_cell_state
+        rnn2_h = self.rnn2_hidden_state
+        rnn2_c = self.rnn2_cell_state
+        context, attention = self.attention(rnn2_h, listener_output, outputs_length)
+
         for i in range(timestep):
             if i == 0:
                 embed_input = preds
                 embed = self.embed(preds)
-                context = self.init_context
                 inputs = torch.cat((embed, context), dim=1)
-                rnn1_hc, rnn2_hc = self.rnn1_hc, self.rnn2_hc
-                rnn1_hc = self.rnn_layer1(inputs, rnn1_hc)
-                rnn2_hc = self.rnn_layer2(rnn1_hc[0], rnn2_hc)
+                rnn1_h, rnn1_c = self.rnn_layer1(inputs, (rnn1_h, rnn1_c))
+                rnn2_h, rnn2_c = self.rnn_layer2(rnn1_h, (rnn2_h, rnn2_c))
             else:
                 embed_input = preds
                 embed = self.embed(embed_input)
                 inputs = torch.cat((embed, context), dim=1)
-                rnn1_hc = self.rnn_layer1(inputs, rnn1_hc)
-                rnn2_hc = self.rnn_layer2(rnn1_hc[0], rnn2_hc)
+                rnn1_h, rnn1_c = self.rnn_layer1(inputs, (rnn1_h, rnn1_c))
+                rnn2_h, rnn2_c = self.rnn_layer2(rnn1_h, (rnn2_h, rnn2_c))
 
             # decoder_state: batch_size * listener_hidden_dim
-            decoder_state = rnn2_hc[0]
+            decoder_state = rnn2_h
             # batch_size * value_dim
             context, attention = self.attention(decoder_state, listener_output, outputs_length)
             # batch_size * (speller_hiddem_dim + value_dim)
@@ -198,7 +197,6 @@ class Speller(nn.Module):
             # 2d tensor
             index = torch.multinomial(prob_distribution, num_samples=1)
             preds = torch.squeeze(index)
-            print("preds", preds)
             predictions.append(preds)
             attentions.append(attention)
 
