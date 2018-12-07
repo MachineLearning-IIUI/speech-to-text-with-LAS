@@ -36,9 +36,9 @@ class Listener(nn.Module):
         inputs_length = [len(utterance) for utterance in inputs_list] # original utterance lengths
         inputs_length = torch.LongTensor(inputs_length)
         outputs_length = inputs_length // 8 # output utterance lengths
-        
+
         # packed_inputs.data.shape: (sum_len * 40)
-        packed_inputs = rnn.pack_sequence(inputs_list)
+        packed_inputs = rnn.pack_sequence(inputs_list).to(DEVICE)
 
         for i in range(self.nlayers):
             # lstm_output: sum_len * (hidden_size*2)
@@ -46,7 +46,7 @@ class Listener(nn.Module):
                 lstm_outputs, _ = self.lstm_list[i](packed_inputs)
             else:
                 lstm_outputs, _ = self.lstm_list[i](packed_inputs)
-            
+
             # unpacked_outputs shape: max_len * batch_size * (hidden_size*2)
             unpacked_outputs, _ = rnn.pad_packed_sequence(lstm_outputs)
 
@@ -145,7 +145,7 @@ class Speller(nn.Module):
             # batch_size * max_transcript_len
             prob_distribution = self.softmax(prob_linear)
             # 2d tensor
-            index = torch.multinomial(prob_distribution, num_samples=1)
+            index = torch.argmax(prob_distribution, dim=1).reshape(-1, 1)
             preds = torch.squeeze(index)
             probs.append(prob_linear)
             predictions.append(preds)
@@ -200,7 +200,7 @@ class Speller(nn.Module):
             # batch_size * max_transcript_len
             prob_distribution = self.softmax(prob_linear)
             # 2d tensor
-            index = torch.multinomial(prob_distribution, num_samples=1)
+            index = torch.argmax(prob_distribution, dim=1).reshape(-1, 1)
             preds = torch.squeeze(index)
             predictions.append(preds)
             attentions.append(attention)
