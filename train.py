@@ -19,16 +19,18 @@ def train(train_loader, model, optimizer, criterion, epoch):
         torch.cuda.empty_cache()
         optimizer.zero_grad()
         probs, predictions, targets_for_loss, targets_length_for_loss, \
-        attentions = model(inputs, targets, teacher_forcing=0.7)
+        attentions = model(inputs, targets, teacher_forcing=0.5)
 
         perplexity = 0
         loss = 0
-        for i in range(len(probs)):
-            loss = loss + criterion(probs[i], targets_for_loss[:, i])
+
+        for i in range(len(targets_for_loss)): # for i in range(batch_size)
+            for j in range(targets_length_for_loss[i]): # for j in range(time_step - 1)
+                loss = loss + criterion(probs[i,j,:].unsqueeze(dim=0), targets_for_loss[i,j].unsqueeze(dim=0))
 
         loss.backward()
         optimizer.step()
-        perplexity = np.exp(loss.item() / max(targets_length_for_loss))
+        perplexity = np.exp(loss.item() / len(targets_for_loss) / max(targets_length_for_loss))
         if step % 10 == 0:
             print("epoch {}, step {}, loss per step {}, perplexity {}, finish {}".format(
                 epoch, step, loss/len(inputs), perplexity, (step+1)*len(inputs)))
@@ -62,10 +64,10 @@ def dev(dev_loader, model, optimizer, criterion, pathname):
             for j in range(len(prediction_list[i])):
                 pred += NUM_2_CHAR[int(prediction_list[i][j].to("cpu"))]
             print("pred: ", pred)
-            target = ""
-            for j in range(len(targets[i])):
-                target += NUM_2_CHAR[int(targets[i][j].to("cpu"))]
-            print("target", target)
+            # target = ""
+            # for j in range(len(targets[i])):
+                # target += NUM_2_CHAR[int(targets[i][j].to("cpu"))]
+            # print("target", target)
             p.append(pred)
     p = np.array(p)
     with open(pathname, 'w') as f:
@@ -123,7 +125,7 @@ def main(args):
 
     test_path = "./data/test.npy"
     test_set = myDataset(test_path, None)
-    test_loader = DataLoader(test_set, shuffle=False, batch_size=batch_size, collate_fn=collate_seq, num_workers=4)
+    test_loader = DataLoader(test_set, shuffle=False, batch_size=1, collate_fn=collate_seq, num_workers=4)
 
     model = LAS(input_size, listener_hidden_size, nlayers,
                 speller_hidden_dim, embedding_dim,
@@ -132,7 +134,7 @@ def main(args):
 
     optimizer = torch.optim.Adam(model.parameters(),
                 lr=args.lr, weight_decay=args.weight_decay)
-    criterion = nn.CrossEntropyLoss(ignore_index=-1)
+    criterion = nn.CrossEntropyLoss(reduction="sum")
 
     start_epoch = 0
     nepochs = args.epochs
@@ -153,18 +155,18 @@ def main(args):
         # model.eval()
         # eval()
     model.eval()
-    dev(dev_loader, model, optimizer, criterion, "submission.csv")
+    dev(test_loader, model, optimizer, criterion, "submission.csv")
 
 def arguments():
     parser = argparse.ArgumentParser(description="LAS")
     # parameters for training process
-    parser.add_argument('--epochs', type=int, default=20, metavar='E',
+    parser.add_argument('--epochs', type=int, default=25, metavar='E',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--weight-decay', type=float, default=0.001,
                         help='L2 regularization')
     parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
                         help="learning rate")
-    parser.add_argument('--checkpoint', type=int, default=550, metavar="R",
+    parser.add_argument('--checkpoint', type=int, default=600, metavar="R",
                         help='checkpoint to save model parameters')
     parser.add_argument('--resume', type=bool, default=False, metavar="R",
                         help='resume training from saved weight')

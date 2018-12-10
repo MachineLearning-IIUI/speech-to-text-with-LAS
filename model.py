@@ -42,10 +42,7 @@ class Listener(nn.Module):
 
         for i in range(self.nlayers):
             # lstm_output: sum_len * (hidden_size*2)
-            if i == 0:
-                lstm_outputs, _ = self.lstm_list[i](packed_inputs)
-            else:
-                lstm_outputs, _ = self.lstm_list[i](packed_inputs)
+            lstm_outputs, _ = self.lstm_list[i](packed_inputs)
 
             # unpacked_outputs shape: max_len * batch_size * (hidden_size*2)
             unpacked_outputs, _ = rnn.pad_packed_sequence(lstm_outputs)
@@ -86,35 +83,28 @@ class Speller(nn.Module):
         self.char_distribution_linear = nn.Linear(in_features=linear_in_features, out_features=class_size)
         self.softmax = nn.Softmax(dim=-1)
 
-        self.rnn1_hidden_state = nn.Parameter(torch.zeros(batch_size, speller_hidden_dim)).to(DEVICE)
-        self.rnn1_cell_state = nn.Parameter(torch.zeros(batch_size, speller_hidden_dim)).to(DEVICE)
-        self.rnn2_hidden_state = nn.Parameter(torch.zeros(batch_size, speller_hidden_dim)).to(DEVICE)
-        self.rnn2_cell_state = nn.Parameter(torch.zeros(batch_size, speller_hidden_dim)).to(DEVICE)
+        self.rnn1_hidden_state = nn.Parameter(torch.zeros(1, speller_hidden_dim)).to(DEVICE)
+        self.rnn1_cell_state = nn.Parameter(torch.zeros(1, speller_hidden_dim)).to(DEVICE)
+        self.rnn2_hidden_state = nn.Parameter(torch.zeros(1, speller_hidden_dim)).to(DEVICE)
+        self.rnn2_cell_state = nn.Parameter(torch.zeros(1, speller_hidden_dim)).to(DEVICE)
         self.speller_hidden_dim = speller_hidden_dim
 
     def forward(self, listener_output, outputs_length, targets, teacher_forcing):
-        if self.rnn1_hidden_state.shape[0] != len(listener_output):
-            batch_size = len(listener_output)
-            self.rnn1_hidden_state = nn.Parameter(torch.zeros(batch_size, self.speller_hidden_dim)).to(DEVICE)
-            self.rnn1_cell_state = nn.Parameter(torch.zeros(batch_size, self.speller_hidden_dim)).to(DEVICE)
-            self.rnn2_hidden_state = nn.Parameter(torch.zeros(batch_size, self.speller_hidden_dim)).to(DEVICE)
-            self.rnn2_cell_state = nn.Parameter(torch.zeros(batch_size, self.speller_hidden_dim)).to(DEVICE)
-
         targets_length_for_loss = [len(transcript)-1 for transcript in targets] # original transcript length - 1
         timestep = max(targets_length_for_loss) # max_transcript_len - 1
         # batch_size * max_transcript_len (LongTensor)
         padded_targets = rnn.pad_sequence(targets, batch_first=True).long().to(DEVICE)
-        targets_for_loss = rnn.pad_sequence(targets, batch_first=True, padding_value=-1).long().to(DEVICE)
-        targets_for_loss = targets_for_loss[:,1:] # only need targets starting from index 1
+        targets_for_loss = padded_targets[:,1:] # only need targets starting from index 1
 
         probs = []
         predictions = []
         attentions = []
 
-        rnn1_h = self.rnn1_hidden_state
-        rnn1_c = self.rnn1_cell_state
-        rnn2_h = self.rnn2_hidden_state
-        rnn2_c = self.rnn2_cell_state
+        batch_size = len(listener_output)
+        rnn1_h = self.rnn1_hidden_state.expand(batch_size, self.speller_hidden_dim)
+        rnn1_c = self.rnn1_cell_state.expand(batch_size, self.speller_hidden_dim)
+        rnn2_h = self.rnn2_hidden_state.expand(batch_size, self.speller_hidden_dim)
+        rnn2_c = self.rnn2_cell_state.expand(batch_size, self.speller_hidden_dim)
         context, attention = self.attention(rnn2_h, listener_output, outputs_length)
 
         for i in range(timestep):
@@ -145,12 +135,15 @@ class Speller(nn.Module):
             # batch_size * max_transcript_len
             prob_distribution = self.softmax(prob_linear)
             # 2d tensor
-            index = torch.argmax(prob_distribution, dim=1).reshape(-1, 1)
+            index = torch.multinomial(prob_distribution, num_samples=1)
+            # index = torch.argmax(prob_distribution, dim=1).reshape(-1, 1)
             preds = torch.squeeze(index)
             probs.append(prob_linear)
             predictions.append(preds)
             attentions.append(attention)
 
+        # probs: batch_size * (timestep-1) * n_classes
+        probs = torch.stack(probs, dim=1)
         # batch_size * timestep
         predictions = torch.stack(predictions, dim=1)
         # targets_for_loss: batch_size * timestep
@@ -158,22 +151,16 @@ class Speller(nn.Module):
         return probs, predictions, targets_for_loss, targets_length_for_loss, attentions
 
     def inference(self, listener_output, outputs_length, timestep):
-        if self.rnn1_hidden_state.shape[0] != len(listener_output):
-            batch_size = len(listener_output)
-            self.rnn1_hidden_state = nn.Parameter(torch.zeros(batch_size, self.speller_hidden_dim)).to(DEVICE)
-            self.rnn1_cell_state = nn.Parameter(torch.zeros(batch_size, self.speller_hidden_dim)).to(DEVICE)
-            self.rnn2_hidden_state = nn.Parameter(torch.zeros(batch_size, self.speller_hidden_dim)).to(DEVICE)
-            self.rnn2_cell_state = nn.Parameter(torch.zeros(batch_size, self.speller_hidden_dim)).to(DEVICE)
+        batch_size = len(listener_output)
+        rnn1_h = self.rnn1_hidden_state.expand(batch_size, self.speller_hidden_dim)
+        rnn1_c = self.rnn1_cell_state.expand(batch_size, self.speller_hidden_dim)
+        rnn2_h = self.rnn2_hidden_state.expand(batch_size, self.speller_hidden_dim)
+        rnn2_c = self.rnn2_cell_state.expand(batch_size, self.speller_hidden_dim)
+        context, attention = self.attention(rnn2_h, listener_output, outputs_length)
 
         predictions = []
         preds = torch.tensor([LABEL_MAP['<sos>'] for i in range(len(listener_output))]).to(DEVICE)
         attentions = []
-
-        rnn1_h = self.rnn1_hidden_state
-        rnn1_c = self.rnn1_cell_state
-        rnn2_h = self.rnn2_hidden_state
-        rnn2_c = self.rnn2_cell_state
-        context, attention = self.attention(rnn2_h, listener_output, outputs_length)
 
         for i in range(timestep):
             if i == 0:
