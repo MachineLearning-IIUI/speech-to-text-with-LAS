@@ -170,7 +170,10 @@ class Speller(nn.Module):
                 rnn1_h, rnn1_c = self.rnn_layer1(inputs, (rnn1_h, rnn1_c))
                 rnn2_h, rnn2_c = self.rnn_layer2(rnn1_h, (rnn2_h, rnn2_c))
             else:
-                embed_input = preds
+                if batch_size == 1:
+                    embed_input = preds.unsqueeze(dim=0)
+                else:
+                    embed_input = preds
                 embed = self.embed(embed_input)
                 inputs = torch.cat((embed, context), dim=1)
                 rnn1_h, rnn1_c = self.rnn_layer1(inputs, (rnn1_h, rnn1_c))
@@ -192,9 +195,12 @@ class Speller(nn.Module):
             predictions.append(preds)
             attentions.append(attention)
 
-        # batch_size * timestep
-        predictions = torch.stack(predictions, dim=1)
-        # predictions = predictions[:,1:] # delete <sos>
+        if batch_size == 1:
+            predictions = torch.stack(predictions, dim=0)
+            predictions = predictions.reshape(1, -1)
+        else:
+            # batch_size * timestep
+            predictions = torch.stack(predictions, dim=1)
         prediction_list = []
         for i in range(len(predictions)):
             tmp = []
@@ -279,7 +285,7 @@ class LAS(nn.Module):
 
     def inference(self, inputs, targets):
         listener_outputs, outputs_length = self.listener(inputs)
-        prediction_list = self.speller.inference(listener_outputs, outputs_length, timestep=300)
+        prediction_list = self.speller.inference(listener_outputs, outputs_length, timestep=500)
         return prediction_list
 
 

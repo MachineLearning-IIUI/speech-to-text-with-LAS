@@ -19,7 +19,7 @@ def train(train_loader, model, optimizer, criterion, epoch):
         torch.cuda.empty_cache()
         optimizer.zero_grad()
         probs, predictions, targets_for_loss, targets_length_for_loss, \
-        attentions = model(inputs, targets, teacher_forcing=0.5)
+        attentions = model(inputs, targets, teacher_forcing=0.2)
 
         perplexity = 0
         loss = 0
@@ -160,13 +160,13 @@ def main(args):
 def arguments():
     parser = argparse.ArgumentParser(description="LAS")
     # parameters for training process
-    parser.add_argument('--epochs', type=int, default=25, metavar='E',
+    parser.add_argument('--epochs', type=int, default=35, metavar='E',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--weight-decay', type=float, default=0.001,
                         help='L2 regularization')
-    parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
+    parser.add_argument('--lr', type=float, default=0.0001, metavar='LR',
                         help="learning rate")
-    parser.add_argument('--checkpoint', type=int, default=600, metavar="R",
+    parser.add_argument('--checkpoint', type=int, default=610, metavar="R",
                         help='checkpoint to save model parameters')
     parser.add_argument('--resume', type=bool, default=False, metavar="R",
                         help='resume training from saved weight')
